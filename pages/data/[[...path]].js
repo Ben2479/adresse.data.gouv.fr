@@ -18,28 +18,60 @@ const rootLink = {
   label: 'Données nationales',
 }
 
-const getDirectories = path => (
+const autorizedPath = (_path, rootPath = PATH) => {
+  const lStatPath = fs.lstatSync(_path)
+  const symbolicLink = lStatPath.isSymbolicLink() && fs.readlinkSync(_path)
+  const realPath = symbolicLink ? path.resolve(path.dirname(_path), symbolicLink) : path.resolve(_path)
+  const isRealPathIsInRoot = realPath.startsWith(rootPath)
+  const isRealPathIsVisibleFile = !path.basename(realPath).startsWith('.')
+  const isPathIsVisibleFile = !path.basename(_path).startsWith('.')
+
+  return {
+    path: realPath,
+    auth: (
+      isRealPathIsInRoot &&
+      isRealPathIsVisibleFile &&
+      isPathIsVisibleFile
+    )
+  }
+}
+
+const getDirectories = _path => (
   fs
-    .readdirSync(path, {withFileTypes: true})
-    .filter(({name}) => !name.startsWith('.')) // Hide hidden files
-    .filter(entry => !entry.isSymbolicLink()) // Hide Symbolic links
-    .map(entry => ({
-      name: entry.name,
-      isDirectory: entry.isDirectory()
-    }))
+    .readdirSync(_path, {withFileTypes: true})
+    .filter(entry => autorizedPath(path.join(_path, entry.name)).auth)
+    .map(entry => {
+      const isSymbolicLink = entry.isSymbolicLink()
+      const computedPath = isSymbolicLink ? path.resolve(
+        _path,
+        fs.readlinkSync(path.join(_path, entry.name))
+      ) : path.join(_path, entry.name)
+      const target = isSymbolicLink ? fs.lstatSync(computedPath) : entry
+      const isDirectory = target.isDirectory()
+      const targetName = isSymbolicLink ? path.basename(computedPath) : entry.name
+
+      return ({
+        name: entry.name,
+        isDirectory,
+        isSymbolicLink,
+        targetName,
+      })
+    })
 )
 
 export function getServerSideProps(context) {
   const {path: paramPath = []} = context.params
   const fileName = `${paramPath.join('/')}`
-  const filePath = path.join(PATH, fileName)
+  const filePath = path.resolve(PATH, fileName)
+  const authPath = autorizedPath(filePath)
   const date = new Date()
   const formattedDate = new Intl.DateTimeFormat('fr', {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(date).replace(/,/g, '\'').replace(/ /g, ' ')
 
   let stat
+  let targetFileName
 
-  if (!filePath.startsWith(PATH)) {
-    console.warn(`[${formattedDate} - WARNING]`, `Attempted illegal access to ${filePath}`)
+  if (!authPath.auth) {
+    console.warn(`[${formattedDate} - WARNING]`, `Attempted illegal access to ${authPath.path}`)
     context.res.statusCode = 404
     return {
       props: {errorCode: 404},
@@ -48,6 +80,13 @@ export function getServerSideProps(context) {
 
   try {
     stat = fs.lstatSync(filePath)
+    targetFileName = path.basename(filePath)
+    if (stat.isSymbolicLink()) {
+      const symbolicLink = fs.readlinkSync(filePath)
+      const realPath = path.resolve(path.dirname(filePath), symbolicLink)
+      stat = fs.lstatSync(realPath)
+      targetFileName = path.basename(realPath)
+    }
   } catch (err) {
     console.warn(`[${formattedDate} - ERROR]`, 'File access error:', err)
     context.res.statusCode = 404
@@ -67,13 +106,13 @@ export function getServerSideProps(context) {
   }
 
   try {
-    const fileExtension = path.extname(fileName)
+    const fileExtension = path.extname(targetFileName)
     const contentType = mime.getType(fileExtension) || 'application/octet-stream'
     const fileContents = fs.readFileSync(filePath)
     const sendToTracker = getAnalyticsPusher()
 
     context.res.setHeader('Content-Type', contentType)
-    context.res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    context.res.setHeader('Content-Disposition', `attachment; filename="${targetFileName}"`)
     context.res.statusCode = 200
     context.res.end(fileContents)
 
