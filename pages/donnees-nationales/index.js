@@ -38,7 +38,7 @@ function DonneesNationales() {
             link='/data/ban/adresses/latest/csv-bal/'
             action='Téléchargez au format BAL'
           >
-            Fichier CSV au format <a href='https://aitf-sig-topo.github.io/voies-adresses/files/AITF_SIG_Topo_Format_Base_Adresse_Locale_v1.3.pdf'>BAL 1.3 (AITF)</a>
+            Fichier CSV au format <a href='https://aitf-sig-topo.github.io/voies-adresses/files/AITF_SIG_Topo_Format_Base_Adresse_Locale_v1.4.pdf'>BAL 1.4 (AITF)</a>
           </Card>
 
           <Card
